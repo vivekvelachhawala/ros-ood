@@ -11,6 +11,7 @@ import numpy as np
 import yaml
 import rospy
 import torch
+import threading
 from duckietown.dtros import DTROS, NodeType
 from std_msgs.msg import Bool
 from sensor_msgs.msg import CompressedImage
@@ -24,6 +25,11 @@ class OodNode(DTROS, Thread):
     """
 
     def __init__(self):
+    
+        # Initialize stop_flag
+        self.stop_flag = threading.Event()
+        # Other initialization code
+        
         # Initialize parent classes' constructors
         super(OodNode, self).__init__(
             node_name='ood_node',
@@ -49,7 +55,7 @@ class OodNode(DTROS, Thread):
         self.stop_flag = Event()
 
         # Subscribe to ROS topics
-        self.vehicle = os.getenv("VEHICLE_NAME")
+        self.vehicle = os.getenv('VEHICLE_NAME')
         self.e_stop_pub = rospy.Publisher(
             f'/{self.vehicle}/motor_control_node/e_stop',
             Bool,
@@ -59,6 +65,10 @@ class OodNode(DTROS, Thread):
             CompressedImage,
             self.callback)
 
+	# Print vehicle name for debugging
+        rospy.loginfo(f'Vehicle name: {self.vehicle}')
+
+	
         # Start child threads
         self.start()
         rospy.loginfo(

@@ -97,7 +97,7 @@ class LaneFollowingNode(DTROS, Thread):
                 break
             self.lock.acquire()
             try:
-                frame = np.fromstring(self.last_frame.data, np.uint8)
+                frame = np.frombuffer(self.last_frame.data, np.uint8)
             except AttributeError:
                 rospy.logwarn('Lane Detector: Camera node is not yet ready...')
                 continue
@@ -157,49 +157,43 @@ class LaneFollowing:
         self.right_bound = self.width * params['boundary']
 
     def detect_lanes(self, frame):
-        """Detect right and left lane lines present in a camera frame.
+    	frame = frame[self.horizon:,:]
+    	mask = cv2.inRange(frame, np.array(self.cm_lb), np.array(self.cm_up))
+    	cv2.imshow("Masked Frame", mask)
+    	cv2.waitKey(1)
 
-        Args:
-            frame: numpy array containing raw image data.
+    	blurred_frame = cv2.GaussianBlur(mask, self.gb_kernel, 0)
+    	edges = cv2.Canny(blurred_frame, self.canny_th1, self.canny_th2)
+    	cv2.imshow("Canny Edges", edges)
+    	cv2.waitKey(1)
 
-        Returns:
-            angle (float): deviation angle from center in radians.
+    	line_segments = cv2.HoughLinesP(
+        	edges, self.rho, np.pi / 180, self.ht_min_thresh, np.array([]),
+        	minLineLength=self.min_line_length, maxLineGap=self.max_line_gap)
 
-        Raises:
-            LaneDetectionException if a pair of lane lines could not be found.
-        """
-        frame = frame[self.horizon:,:]
-        frame = cv2.inRange(
-            frame,
-            np.array(self.cm_lb),
-            np.array(self.cm_up))
-        frame = cv2.GaussianBlur(frame, self.gb_kernel, 0)
-        frame = cv2.Canny(frame, self.canny_th1, self.canny_th2)
-        line_segments = cv2.HoughLinesP(
-            frame,
-            self.rho,
-            np.pi / 180,
-            self.ht_min_thresh,
-            np.array([]),
-            minLineLength=self.min_line_length,
-            maxLineGap=self.max_line_gap)
-        if line_segments is None:
-            raise LaneDetectionException("No lanes detected (Hough transform).")
-        left_slopes = []
-        right_slopes = []
-        for segment in line_segments:
-            for x1, y1, x2, y2 in segment:
-                if y1 == y2:
-                    continue
-                m = -(x2 - x1) / (y2 - y1)
-                if m < 0 and x1 > self.right_bound and x2 > self.right_bound:
-                    right_slopes.append(m)
-                elif m > 0 and x1 < self.left_bound and x1 < self.left_bound:
-                    left_slopes.append(m)
-        if len(left_slopes) <= 0 or len(right_slopes) <= 0:
-            raise LaneDetectionException("No lanes detected (curve fitting).")
-        return math.atan(np.average(left_slopes)) + \
-            math.atan(np.average(right_slopes))
+    	if line_segments is None:
+        	rospy.logerr("No line segments detected")
+        	raise LaneDetectionException("No lanes detected (Hough transform).")
+
+    	left_slopes = []
+    	right_slopes = []
+    	for segment in line_segments:
+        	for x1, y1, x2, y2 in segment:
+            		if y1 == y2:
+                		continue
+            		m = -(x2 - x1) / (y2 - y1)
+            		if m < 0 and x1 > self.right_bound and x2 > self.right_bound:
+                		right_slopes.append(m)
+            		elif m > 0 and x1 < self.left_bound:
+                		left_slopes.append(m)
+    
+    	rospy.loginfo(f"Left slopes: {left_slopes}, Right slopes: {right_slopes}")
+    
+    	if not left_slopes or not right_slopes:
+        	raise LaneDetectionException("No lanes detected (curve fitting).")
+    
+    	return math.atan(np.average(left_slopes)) + math.atan(np.average(right_slopes))
+
 
 
 if __name__ == '__main__':
