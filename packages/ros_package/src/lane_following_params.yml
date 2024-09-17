@@ -46,4 +46,4 @@ boundary: 0.5
 #
 # lpf size is the size of the moving average filter (low pass filter) used to
 # reduce noise on the deviation angle detected by the lane follower
-lpf size: 5
+lpf size: 7

@@ -1,11 +1,8 @@
 #!/usr/bin/env python3.8
 """Module containing OOD detection node."""
 
-
 import os
 from threading import Event, Lock, Thread
-
-
 import cv2
 import numpy as np
 import yaml
@@ -16,20 +13,33 @@ from duckietown.dtros import DTROS, NodeType
 from std_msgs.msg import Bool
 from sensor_msgs.msg import CompressedImage
 from ood_module_betav import Detector
+import time
+
+from torch.distributed import ReduceOp
+
+# Example of usage
+reduction_op = ReduceOp.SUM
+
 
 
 class OodNode(DTROS, Thread):
     """This Node subscribes to the camera feed and determines if an
-    out-of-distribution condition has occurred.  If it has, it performs
+    out-of-distribution condition has occurred. If it has, it performs
     some control action to safe the duckiebot.
     """
 
+    def load_model():
+        try:
+            model = torch.load('betav_duckie_epoch10.pt')
+            print(f"Model successfully loaded: {model}")
+        except Exception as e:
+            print(f"Error loading model: {e}")
+
     def __init__(self):
-    
         # Initialize stop_flag
         self.stop_flag = threading.Event()
         # Other initialization code
-        
+
         # Initialize parent classes' constructors
         super(OodNode, self).__init__(
             node_name='ood_node',
@@ -60,41 +70,54 @@ class OodNode(DTROS, Thread):
             f'/{self.vehicle}/motor_control_node/e_stop',
             Bool,
             queue_size=1)
-        self.sub = rospy.Subscriber(
-            f'/{self.vehicle}/camera_node/image/compressed',
-            CompressedImage,
-            self.callback)
+        self.sub = rospy.Subscriber(f'/{self.vehicle}/camera_node/image/compressed', CompressedImage, self.callback)
 
-	# Print vehicle name for debugging
+        # Print vehicle name for debugging
         rospy.loginfo(f'Vehicle name: {self.vehicle}')
 
-	
         # Start child threads
         self.start()
         rospy.loginfo(
-            f'OOD Module successfully initialized with {self.modelfile}, using'
-            f'{self.torchdevice}')
+            f'OOD Module successfully initialized with {self.modelfile}, using {self.torchdevice}')
 
     def callback(self, data):
         """This method is called whenever a new image is published by the
-        camera node.  It forwards the image to a shared buffer with another
+        camera node. It forwards the image to a shared buffer with another
         thread.
 
         Args:
-            data (CompressedImage) - compressed image data provided by the
+            data (CompressedImage): compressed image data provided by the
                 duckietown camera node.
         """
+        rospy.loginfo("Received image data")
         if self.lock.acquire(True, timeout=0.02):
             try:
                 self.last_frame = data
             finally:
                 self.lock.release()
 
+    def wait_for_camera(self, timeout=30):
+        """Wait for the camera node to be ready."""
+        start_time = time.time()
+        while self.last_frame is None:
+            elapsed_time = time.time() - start_time
+            if elapsed_time > timeout:
+                rospy.logerr("Camera node is not ready after timeout.")
+                return False
+            rospy.logwarn(f"OOD: Camera node is not yet ready, retrying... ({elapsed_time:.2f}s)")
+            time.sleep(1)
+        rospy.loginfo("Camera node is ready!")
+        return True
+
     def run(self):
         """This method runs in a separate thread and takes care of the OOD
-        detection.  It accesses images published to a shared buffer to ensure
+        detection. It accesses images published to a shared buffer to ensure
         that it always has the latest image from the camera before processing.
         """
+        if not self.wait_for_camera():
+            rospy.logerr("OOD initialization failed due to camera readiness.")
+            return
+
         frame = None
         stamp = None
         while not rospy.is_shutdown():
@@ -102,7 +125,7 @@ class OodNode(DTROS, Thread):
                 break
             self.lock.acquire()
             try:
-                frame = np.fromstring(self.last_frame.data, np.uint8)
+                frame = np.frombuffer(self.last_frame.data, np.uint8)
                 stamp = self.last_frame.header.stamp
             except AttributeError:
                 rospy.logwarn('OOD: Camera node is not yet ready...')
@@ -115,12 +138,11 @@ class OodNode(DTROS, Thread):
             if result['isood']:
                 e_stop_msg = Bool()
                 e_stop_msg.data = True
-                #rospy.loginfo(f'OOD Finished: value={result["value"]} im_time={stamp.to_sec()}')
                 self.e_stop_pub.publish(e_stop_msg)
         rospy.loginfo('Ending OOD thread...')
 
     def on_shutdown(self):
-        """Run this method when ROS initiates a shutdown.  Stop any spawned
+        """Run this method when ROS initiates a shutdown. Stop any spawned
         threads."""
         self.stop_flag.set()
         rospy.loginfo('OOD node is shutting down...')
@@ -129,3 +151,4 @@ class OodNode(DTROS, Thread):
 if __name__ == '__main__':
     node = OodNode()
     rospy.spin()
+

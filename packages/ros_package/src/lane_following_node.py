@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Light-weight lane following implementation for the DB18."""
+"""Light-weight lane following implementation for the DB21J."""
 
 
 import math
