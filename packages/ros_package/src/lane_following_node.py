@@ -28,7 +28,7 @@ class LaneFollowingNode(DTROS, Thread):
         # Call the parent classes' constructors
         super(LaneFollowingNode, self).__init__(
             node_name='lane_following',
-            node_type=NodeType.GENERIC)
+            node_type=NodeType.PERCEPTION)
         Thread.__init__(self)
 
         # Load parameters
@@ -157,43 +157,86 @@ class LaneFollowing:
         self.right_bound = self.width * params['boundary']
 
     def detect_lanes(self, frame):
-    	frame = frame[self.horizon:,:]
-    	mask = cv2.inRange(frame, np.array(self.cm_lb), np.array(self.cm_up))
-    	cv2.imshow("Masked Frame", mask)
-    	cv2.waitKey(1)
+        """Detect right and left lane lines present in a camera frame.
 
-    	blurred_frame = cv2.GaussianBlur(mask, self.gb_kernel, 0)
-    	edges = cv2.Canny(blurred_frame, self.canny_th1, self.canny_th2)
-    	cv2.imshow("Canny Edges", edges)
-    	cv2.waitKey(1)
+        Args:
+            frame: numpy array containing raw image data.
 
-    	line_segments = cv2.HoughLinesP(
-        	edges, self.rho, np.pi / 180, self.ht_min_thresh, np.array([]),
-        	minLineLength=self.min_line_length, maxLineGap=self.max_line_gap)
+        Returns:
+          angle (float): deviation angle from center in radians.
 
-    	if line_segments is None:
-        	rospy.logerr("No line segments detected")
-        	raise LaneDetectionException("No lanes detected (Hough transform).")
+        Raises:
+            LaneDetectionException if a pair of lane lines could not be found.
+        """
+        # Copy the original frame to draw detected lines on it later
+        #original_frame = frame.copy()
 
-    	left_slopes = []
-    	right_slopes = []
-    	for segment in line_segments:
-        	for x1, y1, x2, y2 in segment:
-            		if y1 == y2:
-                		continue
-            		m = -(x2 - x1) / (y2 - y1)
-            		if m < 0 and x1 > self.right_bound and x2 > self.right_bound:
-                		right_slopes.append(m)
-            		elif m > 0 and x1 < self.left_bound:
-                		left_slopes.append(m)
-    
-    	rospy.loginfo(f"Left slopes: {left_slopes}, Right slopes: {right_slopes}")
-    
-    	if not left_slopes or not right_slopes:
-        	raise LaneDetectionException("No lanes detected (curve fitting).")
-    
-    	return math.atan(np.average(left_slopes)) + math.atan(np.average(right_slopes))
+        # Focus on the lower part of the image (horizon)
+        frame = frame[self.horizon:, :]
 
+        # Apply color mask to isolate lane colors
+        frame = cv2.inRange(
+            frame,
+            np.array(self.cm_lb),
+            np.array(self.cm_up))
+
+        # Apply Gaussian blur and Canny edge detector
+        frame = cv2.GaussianBlur(frame, self.gb_kernel, 0)
+        frame = cv2.Canny(frame, self.canny_th1, self.canny_th2)
+
+        # Perform Hough Line Transform to detect line segments
+        line_segments = cv2.HoughLinesP(
+            frame,
+            self.rho,
+            np.pi / 180,
+            self.ht_min_thresh,
+            np.array([]),
+            minLineLength=self.min_line_length,
+            maxLineGap=self.max_line_gap)
+
+        if line_segments is None:
+            raise LaneDetectionException("No lanes detected (Hough transform).")
+
+        # Initialize lists for slopes of left and right lanes
+        left_slopes = []
+        right_slopes = []
+
+        # Loop through each detected line segment
+        for segment in line_segments:
+            for x1, y1, x2, y2 in segment:
+                if y1 == y2:
+                    continue
+                m = -(x2 - x1) / (y2 - y1)
+                if m < 0 and x1 > self.right_bound and x2 > self.right_bound:
+                    right_slopes.append(m)
+                    # Draw right lane line segment in green
+                    #cv2.line(original_frame, (x1, y1 + self.horizon), (x2, y2 + self.horizon), (0, 255, 0), 2)
+                elif m > 0 and x1 < self.left_bound and x2 < self.left_bound:
+                    left_slopes.append(m)
+                    # Draw left lane line segment in blue
+                    #cv2.line(original_frame, (x1, y1 + self.horizon), (x2, y2 + self.horizon), (255, 0, 0), 2)
+
+        # If no lanes detected, raise an exception
+        if len(left_slopes) <= 0 or len(right_slopes) <= 0:
+            raise LaneDetectionException("No lanes detected (curve fitting).")
+
+        # Calculate average slopes for both left and right lanes
+        avg_left_slope = np.average(left_slopes)
+        avg_right_slope = np.average(right_slopes)
+
+        # Log the slopes for debugging
+
+        # Calculate the angles
+        left_angle = math.atan(avg_left_slope)
+        right_angle = math.atan(avg_right_slope)
+        total_angle = left_angle + right_angle
+        #rospy.loginfo(f"Left angle: {math.degrees(left_angle):.2f}°, Right angle: {math.degrees(right_angle):.2f}°")
+
+        # Display the original frame with detected lines
+        #cv2.imshow('Lane Lines', original_frame)
+        #cv2.waitKey(1)  # Add a small delay to display the window
+
+        return total_angle
 
 
 if __name__ == '__main__':

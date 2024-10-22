@@ -7,8 +7,8 @@
 # right_boost and left_boost are constant velocities added to their respective
 #    wheels to componsate for poorly manufactured motors
 velocity: 0.4
-p: 0.2
-i: 0.0
-d: 0.1
+p: 0.04
+i: 0.002
+d: 0.04
 left_boost: 0.0
 right_boost: 0.0

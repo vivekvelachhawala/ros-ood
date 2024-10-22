@@ -95,7 +95,7 @@ class Detector(nn.Module):
 
         self.device = device
         self.encoder = Encoder(self.device)
-        self.load_state_dict(torch.load(modelfile, map_location = device, weights_only=True)["model_state_dict"])
+        self.load_state_dict(torch.load(modelfile, map_location=device, weights_only=True)["model_state_dict"])
         self.eval()
 
         self.topz = self.config["topz"]

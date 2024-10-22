@@ -6,6 +6,7 @@ node."""
 import os
 import yaml
 import rospy
+import math
 
 
 from duckietown.dtros import DTROS, NodeType
@@ -70,16 +71,29 @@ class MotorControlNode(DTROS):
         Args:
             angle (Float32): steering angle in radians.
         """
+        #rospy.loginfo(f"Received angle: {math.degrees(angle.data):.2f}°")
+        
         self.angle_integral += angle.data
+        
+        #rospy.loginfo(f"Angle data: {angle.data}")
+        
         pid = self.params['p'] * angle.data + \
             self.params['i'] * self.angle_integral + \
             self.params['d'] * (angle.data - self.last_angle)
+            
+        #rospy.loginfo(f"diff: {angle.data - self.last_angle}")
+        #rospy.loginfo(f"pid: {pid}")
+        
         self.last_angle = angle.data
         msg_wheels_cmd = WheelsCmdStamped()
-        msg_wheels_cmd.vel_right = self.params['velocity'] - pid + \
+        msg_wheels_cmd.vel_right = self.params['velocity'] + pid + \
             self.params['right_boost']
-        msg_wheels_cmd.vel_left = self.params['velocity'] + pid + \
+        msg_wheels_cmd.vel_left = self.params['velocity'] - pid + \
             self.params['left_boost']
+        
+        #rospy.loginfo(f"Left vel: {msg_wheels_cmd.vel_left}, Right vel: {msg_wheels_cmd.vel_right}")
+
+        
         if not self.e_stop:
             self.wheels_cmd_pub.publish(msg_wheels_cmd)
 

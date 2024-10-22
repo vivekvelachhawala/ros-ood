@@ -3,8 +3,8 @@
 # width is the desired width in pixels
 # height is the desired height in pixels
 # fps in the desired detection cycle time in Hz
-width: 128
-height: 96
+width: 320
+height: 240
 fps: 5
 
 # CV Parameters
@@ -37,13 +37,13 @@ canny:
     threshold 2: 400
 line detection:
     rho: 1
-    min threshold: 10
-    min length: 8
-    max gap: 4
+    min threshold: 25
+    min length: 10
+    max gap: 2
 boundary: 0.5
 
 # Post Processing Parameters
 #
 # lpf size is the size of the moving average filter (low pass filter) used to
 # reduce noise on the deviation angle detected by the lane follower
-lpf size: 7
+lpf size: 5
